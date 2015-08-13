@@ -1,5 +1,4 @@
 <?php
-
 // -------------------------------------------------------------------------------------------------
 /**
  * form_builder
@@ -13,6 +12,7 @@
  * @subpackage          Libraries
  * @category            Form Bilder
  * @author    Tyler Wall <tyler.r.wall@gmail.com>
+ * @author    Emmanuel Vincent <zygolechien@gmail.com>
  * @version   0.9.3
  * @license   http://opensource.org/licenses/MIT MIT licensed.
  *
@@ -22,19 +22,15 @@
   ===============================================================================================
   USAGE
   ===============================================================================================
-
   1. Load codeigniter 'form' helper       ---         $this->load->helper('form');
   2. Load this library                    ---         $this->load->library('form_builder');
   3. Open your form (include the approprate class and col-sm-* for formating
   4. Echo out the output of the form_builder->build_*
   5. Close your form (`echo $this->form_builder->close_form()`).
   6. Enjoy easy forms
-
   -----------------------------------------------------------------------------------------------
-
   <? $this->load->helper('form'); ?>
   <? $this->load->library('form_builder'); ?>
-
   <?
     echo $this->form_builder->open_form(array('action' => site_url('/account/login')));
     echo $this->form_builder->build_form_horizontal(array(
@@ -58,7 +54,6 @@
   ?>
  */
 class Form_builder {
-
     private $config = array(/* Config array - can be overrided by passing in array in ini() */
         'default_input_type' => 'form_input',
         'default_input_container_class' => 'form-group',
@@ -69,6 +64,8 @@ class Form_builder {
         'default_form_class' => 'form-horizontal col-sm-12',
         'default_button_classes' => 'btn btn-primary',
         'default_date_post_addon' => '<span class="input-group-btn"><button class="btn default" type="button"><i class="fa fa-calendar"></i></button></span>',
+        'default_date_format' => 'Y-m-d',
+        'default_date_today_if_not_set' => false,
         'empty_value_html' => '<div class="form-control" style="border:none;"></div>',
         'use_testing_value' => true
     );
@@ -76,8 +73,9 @@ class Form_builder {
     private $data_source; /* Global holder for the source of the data */
     private $elm_options; /* Global options holder */
     private $elm_options_help;
+    private $elm_options_before;
+    private $elm_options_after;
     private $print_string = ''; /* An output buffer */
-
     /**
      * @property array $input_addons
      * This is for adding input-groups and addons.
@@ -91,7 +89,6 @@ class Form_builder {
         'post' => array(), /* container for post addons */
         'post_html' => ''
     );
-
     function __construct($config = array()) {
         if (!empty($init)) {
           $this->init($config);
@@ -99,7 +96,6 @@ class Form_builder {
           $this->func = $this->config['default_input_type'];
         }
     }
-
     function init($config = array()) {
         if (!empty($config)) {
             foreach ($config as $k => $v) {
@@ -108,11 +104,9 @@ class Form_builder {
             $this->func = $this->config['default_input_type'];
         }
     }
-
     function get_config() {
         return $this->config;
     }
-
     function open_form($options) {
         // <form id="item_form" name="item_form" method="post" class="col-sm-12 form-horizontal" action="">
         $action = '';
@@ -122,21 +116,17 @@ class Form_builder {
         } else {
             show_error('No action set for form. Please include array(\'action\' => \'\') in the open_form(...) function call');
         }
-
         $class = $this->config['default_form_class'];
         if (isset($options['class'])) {
             $class = $options['class'];
         }
         $options['class'] = $class;
         $options['autocomplete'] = 'on';
-
         return $this->_build_form_open($action, $options);
     }
-
     function close_form() {
         return form_close();
     }
-
     /**
      *
      * @param array $ary - an array from the DB. Format: $k => $v
@@ -160,13 +150,11 @@ class Form_builder {
      */
     function auto_db_to_options($ary, $custom_options = array()) {
         $options = array();
-
         foreach ($ary as $k => $v) {
             $elm_options = array(
                 'id' => $k,
                 'value' => $v
             );
-
             /*
              * TODO: this should be put in the options. It is suited specificaly for my database
              * configuration and my practices - which include having a 'id', 'modified', 'created', and 'active'
@@ -194,7 +182,6 @@ class Form_builder {
                         $elm_options['type'] = 'date';
                         $elm_options['readonly'] = 'readonly';
                         break;
-
                     case 'active':
                         $elm_options['type'] = 'dropdown';
                         $elm_options['options'] = array(
@@ -208,22 +195,18 @@ class Form_builder {
                         break;
                 }
             }
-
             /* We need to override what was 'auto' created - Note: should always be done last */
             if (isset($custom_options) && isset($custom_options[$k])) {
                 if (is_array($custom_options[$k])) {
                     $elm_options = array_merge($elm_options, $custom_options[$k]);
                 }
             }
-
             if (!(isset($custom_options) && isset($custom_options[$k]) && !is_array($custom_options[$k]) && $custom_options[$k] == 'unset')) {
                 $options[] = $elm_options;
             }
         }
-
         return $options;
     }
-
     /**
      *
      * @param array $pre_built - the array that was pre-built using `auto_db_to_options`
@@ -254,7 +237,6 @@ class Form_builder {
         }
         return;
     }
-
     /**
      * Build From  Horizontal
      * @access  public
@@ -264,10 +246,8 @@ class Form_builder {
     function build_form_horizontal($options, $data_source = array()) {
         $this->_reset_builder();
         $this->data_source = (array) $data_source;
-
         foreach ($options as $elm_options) {
             $this->elm_options = $elm_options;
-
             if (is_array($this->elm_options)) {
                 $this->_prep_options();
                 switch ($this->func) {
@@ -285,7 +265,6 @@ class Form_builder {
         }
         return $this->squish_HTML($this->print_string);
     }
-
     /**
      * Function build_display
      *
@@ -300,15 +279,11 @@ class Form_builder {
     function build_display($options, $data_source = array()) {
         $this->_reset_builder();
         $this->data_source = (array) $data_source;
-
         /* styling prefrence */
         $this->config['default_control_label_class'] .= ' bold';
-
         $this->print_string .= $this->_build_form_open('', array('class' => $this->config['default_form_class']));
-
         foreach ($options as $elm_options) {
             $this->elm_options = $elm_options;
-
             if (is_array($this->elm_options)) {
                 $this->_prep_options();
                 if ($this->func != 'form_json') {
@@ -323,7 +298,6 @@ class Form_builder {
         $this->print_string .= $this->close_form();
         return $this->squish_HTML($this->print_string);
     }
-
     private function _prep_options() {
         foreach ($this->elm_options as &$opt) {
             /* trying again to change everything to an array */
@@ -332,6 +306,8 @@ class Form_builder {
             }
         }
         $this->func = $this->config['default_input_type'];
+        /* Remove rules eventually needed for form validation */
+        unset($this->elm_options['rules']);
         /* Pull the input type from the array */
         if (isset($this->elm_options['type']) && !empty($this->elm_options['type'])) {
             $this->func = 'form_' . $this->elm_options['type'];
@@ -343,15 +319,12 @@ class Form_builder {
 //        if (!function_exists($this->func)) { /* check if the function exists */
 //            $this->func = $this->config['default_input_type'];
 //        }
-
-
         /* make sure to add 'form-control' to the class array */
         $class = $this->config['bootstrap_required_input_class'];
         if (isset($this->elm_options['class'])) {
             $class .= ' ' . trim(str_replace($this->config['bootstrap_required_input_class'], '', $this->elm_options['class']));
         }
         $this->elm_options['class'] = $class;
-
         /* make sure there is a name' attribute */
         if (!isset($this->elm_options['name'])) {
             /* put the id as the name by default - makes smaller 'config' arrays */
@@ -361,7 +334,6 @@ class Form_builder {
                 $this->elm_options['name'] = '';
             }
         }
-
         /* make sure there is a 'value' attribute
          * Also, make for fun defaulting by passing an object
          */
@@ -371,16 +343,14 @@ class Form_builder {
         } elseif (isset($this->elm_options['value'])) {
             $default_value = $this->elm_options['value'];
         }
-
         if (isset($this->elm_options['testing_value']) && $this->config['use_testing_value']) {
             $default_value = $this->elm_options['testing_value'];
         }
-
-        $this->elm_options['value'] = $this->adv_set_value($this->elm_options['name'], $default_value);
-
-
+        // Perhaps 'if statement' might be disabled
+        if ($this->func != 'form_textarea'){
+            $this->elm_options['value'] = $this->adv_set_value($this->elm_options['name'], $default_value);
+        }
         /* ====== Handle input_addons ======== */
-
         /* FIRST - clear the input_addons global array from any previous elemets */
         $this->input_addons = array(
             'exists' => false,
@@ -389,18 +359,15 @@ class Form_builder {
             'post' => array(),
             'post_html' => ''
         );
-
         /* playing nice: handling the singular case */
         if (isset($this->elm_options['input_addon'])) {
             $this->elm_options['input_addons'] = $this->elm_options['input_addon'];
             unset($this->elm_options['input_addon']);
         }
-
         /* set the new input_addons array */
         if (isset($this->elm_options['input_addons']) && !empty($this->elm_options['input_addons'])) {
             /* there are input addons */
             $this->input_addons['exists'] = true;
-
             /* check for pre addons */
             if (isset($this->elm_options['input_addons']['pre']) && !empty($this->elm_options['input_addons']['pre'])) {
                 $pre = $this->elm_options['input_addons']['pre'];
@@ -409,7 +376,6 @@ class Form_builder {
                 }
                 $this->input_addons['pre'] = $pre;
             }
-
             /* then check for post addons */
             if (isset($this->elm_options['input_addons']['post']) && !empty($this->elm_options['input_addons']['post'])) {
                 $post = $this->elm_options['input_addons']['post'];
@@ -418,7 +384,6 @@ class Form_builder {
                 }
                 $this->input_addons['post'] = $post;
             }
-
             /* accomidate hard coding of custom elements */
             if (isset($this->elm_options['input_addons']['pre_html']) && !empty($this->elm_options['input_addons']['pre_html'])) {
                 $this->input_addons['pre_html'] = $this->elm_options['input_addons']['pre_html'];
@@ -426,18 +391,31 @@ class Form_builder {
             if (isset($this->elm_options['input_addons']['post_html']) && !empty($this->elm_options['input_addons']['post_html'])) {
                 $this->input_addons['post_html'] = $this->elm_options['input_addons']['post_html'];
             }
-
-
             /* unset it so that no funky stuff happens */
             unset($this->elm_options['input_addons']);
         }
-
         /* remove help element - don't need help properties to be in input elements */
         $this->elm_options_help = (isset($this->elm_options['help']) && !empty($this->elm_options['help'])) ? $this->elm_options['help'] : '';
+		/* Error handling by bootstrap, replacement/addition of error in place of help */
+		if(isset($this->elm_options['id'])) {
+            $fieldError = form_error($this->elm_options['id']);
+            if (isset($fieldError) && !empty($fieldError)) {
+                $this->elm_options_help = $fieldError;
+            }
+        }
         unset($this->elm_options['help']);
+        /* Remove before element - don't need before properties to be in input elements */
+        $this->elm_options_before = (isset($this->elm_options['before']) && !empty($this->elm_options['before'])) ? $this->elm_options['before'] : '';
+        unset($this->elm_options['before']);
+        /* Remove after element - don't need after properties to be in input elements */
+        $this->elm_options_after = (isset($this->elm_options['after']) && !empty($this->elm_options['after'])) ? $this->elm_options['after'] : '';
+        unset($this->elm_options['after']);
+        /* Remove overridden control class element - don't need overridden control class properties to be in input elements */
+        $this->elm_options_form_control_class = (isset($this->elm_options['form_control_class']) && !empty($this->elm_options['form_control_class'])) ? $this->elm_options['form_control_class'] : '';
+        unset($this->elm_options['form_control_class']);
+
         return;
     }
-
     /**
      * Form Value
      *
@@ -462,10 +440,8 @@ class Form_builder {
             }
             return $default;
         }
-
         return html_escape($OBJ->set_value($field, $default));
     }
-
     function squish_HTML($html) {
         $re = '%# Collapse whitespace everywhere but in blacklisted elements.
         (?>             # Match all whitespans other than single space.
@@ -492,13 +468,11 @@ class Form_builder {
         }
         return $text;
     }
-
     /*
       ===============================================================================================
       PRIVATE FUNCTIONS
       ===============================================================================================
      */
-
     private function _build_input($include_pre_post = true) {
         $input_html_string = '';
         /* Combine elements have multiple input elements on the same line.
@@ -508,12 +482,10 @@ class Form_builder {
          */
         if ($this->func == 'form_combine') {
             if (!isset($this->elm_options['elements'])) {
-                dump($this->elm_options);
+                $this->dump($this->elm_options);
                 show_error('Tried to create `form_combine` with no elements. (id="' . $this->elm_options['name'] . '")');
             }
-
             $elm_options_backup = $this->elm_options; /* We need to make a copy for everything to work correctly */
-
             $counter = 0;
             foreach ($elm_options_backup['elements'] as $elm) {
                 $this->elm_options = $elm; /* We override elm_options */
@@ -524,7 +496,6 @@ class Form_builder {
                 $input_html_string .= $this->_build_input(false);
                 $counter++;
             }
-
             $this->elm_options = $elm_options_backup; /* We put our options back */
             $this->_prep_options(); /* Run Prep to restore the state in which we begain */
         } else {
@@ -556,17 +527,17 @@ class Form_builder {
                 case 'form_anchor':
                 case 'form_a':
                     $class = str_replace($this->config['default_button_classes'], '', $this->elm_options['class']);
-                    $class = str_replace($this->config['bootstrap_required_input_class'], '', $class); /* remove the 'form-control' class */
+                    $class = str_replace($this->config['bootstrap_required_input_class'], '', $this->elm_options['class']); /* remove the 'form-control' class */
                     /* add class="valid" to all dropdowns (makes them not full width - and works better with select2 plugin) */
                     if (strpos($class, $this->config['default_button_classes']) === FALSE) {
                         $class .= ' ' . $this->config['default_button_classes'];
                     }
                     $this->elm_options['class'] = trim($class);
-
-                    $value = $this->elm_options['label'];
-                    unset($this->elm_options['label']);
-
-                    $input_html_string = anchor('', $value, $this->elm_options);
+                    $value = $this->elm_options['value'];
+                    unset($this->elm_options['value']);
+                    $url = $this->elm_options['href'];
+                    unset($this->elm_options['href']);
+                    $input_html_string = anchor($url, $value, $this->elm_options);
                     break;
                 case 'form_label':
                     $input_html_string = form_label($this->_make_label($this->elm_options['value']), '', array(
@@ -574,13 +545,27 @@ class Form_builder {
                     ));
                     break;
                 case 'form_date':
-                    $this->input_addons['exists'] = true;
+                    $this->elm_options['type'] = 'date'; // HTML5 compliant type for date
+                    // Conditionnal post addon appending
+                    $this->input_addons['exists'] = !empty($this->config['default_date_post_addon']);
                     $this->input_addons['post_html'] = $this->config['default_date_post_addon'];
-
-                    if (empty($this->elm_options['value'])) {
-                        $this->elm_options['value'] = date('Y-m-d', strtotime('today'));
+                    // If dates are empty or equals to zero, it neans they are not filled
+                    if (empty($this->elm_options['value']) || $this->elm_options['value'] == 0) {
+                        if ($this->config['default_date_today_if_not_set']) {
+                            $dt = new DateTime('today');
+                            $this->elm_options['value'] = $dt->format($this->config['default_date_format']);
+                            //$this->elm_options['value'] = date($this->config['default_date_format'], strtotime('today'));
+                        }
                     } else {
-                        $this->elm_options['value'] = date("Y-m-d", strtotime($this->elm_options['value']));
+                        $dt = new DateTime($this->elm_options['value']);
+                        $this->elm_options['value'] = $dt->format($this->config['default_date_format']);
+                    }
+                    $input_html_string = form_input($this->elm_options);
+                    break;
+                case 'form_time':
+                    $this->elm_options['type'] = 'time'; // HTML5 compliant type for time
+                    if (empty($this->elm_options['value']) || $this->elm_options['value'] == 0) {
+                        unset($this->elm_options['value']);
                     }
                     $input_html_string = form_input($this->elm_options);
                     break;
@@ -602,21 +587,20 @@ class Form_builder {
                 case 'form_hidden':
                     return form_hidden($this->elm_options['id'], $this->elm_options['value']);
                 case 'form_submit':
-                    $name = $this->elm_options['id'];
-                    $label = $this->_make_label((isset($this->elm_options['label']) ? $this->elm_options['label'] : $this->elm_options['id']));
-
+                    $label = $this->_make_label((isset($this->elm_options['label']) ? $this->elm_options['label'] : isset($this->elm_options['id']) ? $this->elm_options['id'] : ''));
                     unset($this->elm_options['id']);
                     unset($this->elm_options['label']);
-
+                    if (!isset($this->elm_options['value'])) {
+                        unset($this->elm_options['name']);
+                    }
                     $class = str_replace($this->config['default_button_classes'], '', $this->elm_options['class']);
-                    $class = str_replace($this->config['bootstrap_required_input_class'], '', $class); /* remove the 'form-control' class */
+                    $class = str_replace($this->config['bootstrap_required_input_class'], '', $this->elm_options['class']); /* remove the 'form-control' class */
                     /* add class="valid" to all dropdowns (makes them not full width - and works better with select2 plugin) */
                     if (strpos($class, $this->config['default_button_classes']) === FALSE) {
                         $class .= ' ' . $this->config['default_button_classes'];
                     }
                     $this->elm_options['class'] = trim($class);
-
-                    $input_html_string = form_submit($name, $label, $this->_create_extra_string($this->elm_options));
+                    $input_html_string = form_submit($this->elm_options);
                     break;
                 case 'form_option':
                 case 'form_dropdown':
@@ -625,33 +609,29 @@ class Form_builder {
                         $name = $this->elm_options['name'];
                         $options = $this->elm_options['options'];
                         $value = $this->elm_options['value'];
-
                         unset($this->elm_options['name']);
                         unset($this->elm_options['value']);
                         unset($this->elm_options['options']);
-
                         if (!empty($this->config['default_dropdown_class'])) {
                             $class = str_replace($this->config['bootstrap_required_input_class'], '', $this->elm_options['class']);
                             /* add class="valid" to all dropdowns (makes them not full width - and works better with select2 plugin) */
                             if (strpos($class, $this->config['default_dropdown_class']) === FALSE) {
                                 $class .= ' ' . $this->config['default_dropdown_class'];
                             }
-
                             if (strpos($class, $this->config['bootstrap_required_input_class']) === FALSE) {
                                 $class .= ' ' . $this->config['bootstrap_required_input_class'];
                             }
                             $this->elm_options['class'] = trim($class);
                         }
-
                         $input_html_string = form_dropdown($name, $options, $value, $this->_create_extra_string());
                     } else {
-                        dump($this->elm_options);
+                        $this->dump($this->elm_options);
                         show_error('Tried to create `form_dropdown` with no options. (id="' . $this->elm_options['name'] . '")');
                     }
                     break;
                 case 'form_html':
                     if (!isset($this->elm_options['html'])) {
-                        dump($this->elm_options);
+                        $this->dump($this->elm_options);
                         show_error('Tried to create `form_html` with no html. (id="' . $this->elm_options['od'] . '")');
                     }
                     $input_html_string = $this->elm_options['html'];
@@ -679,10 +659,8 @@ class Form_builder {
         $ret_string .= $this->_build_input_addons_post();
         $ret_string .= ($include_pre_post) ? $this->_build_help_block() : '';
         $ret_string .= ($include_pre_post) ? $this->_post_input() : '';
-
         return $ret_string;
     }
-
     private function _build_input_addons_pre() {
         $ret_string = '';
         if ($this->input_addons['exists']) {
@@ -697,7 +675,6 @@ class Form_builder {
         }
         return $ret_string;
     }
-
     private function _build_input_addons_post() {
         $ret_string = '';
         if ($this->input_addons['exists']) {
@@ -712,7 +689,6 @@ class Form_builder {
         }
         return $ret_string;
     }
-
     private function _create_extra_string() {
         $extra = '';
         foreach ($this->elm_options as $k => $v) {
@@ -720,37 +696,46 @@ class Form_builder {
         }
         return trim($extra);
     }
-
     private function _build_form_open($action, $attributes) {
         return form_open_multipart($action, $attributes);
     }
-
     private function _pre_elm() {
-        return '<div class="' . $this->config['default_input_container_class'] . '">';
-    }
-
-    private function _post_elm() {
-        return '</div>';
-    }
-
-    private function _pre_input() {
-        if ($this->func == 'form_date') {
-            return '<div class="input-group date date-picker ' . $this->config['default_form_control_class'] . '" data-date="' . $this->elm_options['value'] . '" data-date-format="yyyy-mm-dd" data-date-viewmode="years">';
+        $errorClass = '';
+        if(isset($this->elm_options['id'])) {
+            $fieldError = form_error($this->elm_options['id']);
+            if (isset($fieldError) && !empty($fieldError)) {
+                $errorClass = ' has-error';
+                        log_message('debug', "Form builder: field '" .
+                         $this->elm_options['id'] . "' has error");
+            }
         }
-        return '<div class="' . $this->config['default_form_control_class'] . '">';
+        return $this->elm_options_before . '<div class="' . $this->config['default_input_container_class'] . $errorClass . '">';
     }
-
+    private function _post_elm() {
+        return '</div>' . $this->elm_options_after;
+    }
+    private function _pre_input() {
+        $class = !empty($this->elm_options_form_control_class) ? $this->elm_options_form_control_class : $this->config['default_form_control_class'];
+        if ($class != '') {
+            return '<div class="' . $class . '">';
+        } else {
+            return '';
+        }
+    }
     private function _build_help_block() {
         if (!empty($this->elm_options_help)) {
             return '<span class="help-block">' . $this->elm_options_help . '</span>';
         }
         return '';
     }
-
     private function _post_input() {
-        return '</div>';
+        $class = !empty($this->elm_options_form_control_class) ? $this->elm_options_form_control_class : $this->config['default_form_control_class'];
+        if ($class != '') {
+            return '</div>';
+        } else {
+            return '';
+        }
     }
-
     private function _label() {
         $label = '';
         if (isset($this->elm_options['label']) && $this->elm_options['label'] == 'none') {
@@ -760,25 +745,21 @@ class Form_builder {
         } elseif (isset($this->elm_options['id']) && $this->func != 'form_submit') {
             $label = $this->_make_label($this->elm_options['id']);
         }
-
-        if ($this->func == 'form_submit') {
-            $label = '';
+        if ($this->func == 'form_submit' || $this->func == 'form_reset' || $this->func == 'form_anchor') {
+            return '';
+        } else {
+            return form_label($label, $this->elm_options['name'], array(
+                'class' => $this->config['default_control_label_class']
+            ));
         }
-
-        return form_label($label, $this->elm_options['name'], array(
-            'class' => $this->config['default_control_label_class']
-        ));
     }
-
     private function _make_label($str) {
         return ucwords(str_replace(array('_', '-', '[', ']'), array(' ', ' ', ' ', ' '), $str));
     }
-
     private function _reset_builder() {
         $this->print_string = '';
         $this->func = $this->config['default_input_type'];
     }
-
     private function _recursive_build_json($ary, $offset = 0) {
         $kv_str = '';
         foreach ($ary as $k => $v) {
@@ -787,7 +768,6 @@ class Form_builder {
             if ($offset >= 1) {
                 $offset_class = 'col-sm-offset-' . $offset;
             }
-
             if ((is_array($v) || is_object($v)) && !is_string($v)) {
                 $new_offset = $offset + 1;
                 $innter_str = $this->_recursive_build_json((array) $v, $new_offset);
@@ -798,10 +778,25 @@ class Form_builder {
         }
         return $kv_str;
     }
-
+    private function dump($data) {
+        if(is_array($data)) { //If the given variable is an array, print using the print_r function.
+            print "<pre>-----------------------\n";
+            print_r($data);
+            print "-----------------------</pre>";
+        } elseif (is_object($data)) {
+            print "<pre>==========================\n";
+            var_dump($data);
+            print "===========================</pre>";
+        } else {
+            print "=========&gt; ";
+            var_dump($data);
+            print " &lt;=========";
+        }
+    }
     /*
       ===============================================================================================
       Specific Input_*
       ===============================================================================================
      */
 }
+?>
